@@ -1,5 +1,8 @@
 ## 2026-09-06
 
+### Fixed
+- **pi no longer drops images from the vision model**: [`pi-models.dspark.example.json`](pi-models.dspark.example.json) shipped `"input": ["text"]` on the `deepseek-v4-flash-vision-exp` entry. pi keys modal image support off a model's `input` array, so a text-only entry made pi treat this vision endpoint as text-only and **discard images before the request was sent**, logging `Current model does not support images. The image will be omitted from this request.` The example now ships `"input": ["text", "image"]`, and the README's pi section documents the requirement, the exact symptom, the fix for users who already copied an older entry (add the `"image"` value and restart pi in a fresh session), and the server-side rule that `image_url` belongs only on `user` turns. No server-side change; the endpoint already accepts OpenAI `image_url` / base64 data-URL parts.
+
 ### Added
 - **C128A prefill metadata cache (`DSPARK_ENABLE_C128A_PREFILL_CACHE`, default 0)**: on the pinned Anemll 0.1.1 SM120 attention path, reuse the unchanged local-to-global index conversion across layers sharing the current forward's metadata. C4A, decode and the conversion kernel are unchanged; no persistent buffers are added. Includes fail-closed version/region checks, per-rank launcher synchronization and preflight, and cache-lifetime/C4/mixed-batch regressions. No end-to-end speedup is implied by the reduced conversion count.
 
