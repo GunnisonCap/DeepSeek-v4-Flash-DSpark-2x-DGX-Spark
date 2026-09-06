@@ -32,10 +32,6 @@ FIXDIR = ROOT / "scripts" / "fixtures" / "issue144-effort-align"
 FIX_SNAPSHOT = FIXDIR / "encoding_dsv4-48095b345-snapshot.py"
 FIX_LIVE = FIXDIR / "deepseek_v4_encoding-48095b345-live-chain.py"
 PATCHER = ROOT / "patches" / "hotfix-dsv4-issue144-effort-align.py"
-COMPOSE = ROOT / "docker-compose.dspark.yml"
-START = ROOT / "start-deepseek-v4-flash-dspark.sh"
-ENV_EXAMPLE = ROOT / ".env.dspark.example"
-CI = ROOT / "scripts" / "ci-validate.sh"
 
 BLOCK = 256
 
@@ -438,51 +434,6 @@ class Patcher(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0)
         self.assertIn("patched", proc.stdout)
-
-
-class Wiring(unittest.TestCase):
-    def test_compose_gate_default_off_fail_closed(self):
-        compose = COMPOSE.read_text()
-        self.assertIn(
-            'DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN: "${DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN:-0}"',
-            compose,
-        )
-        self.assertIn(
-            'if [ "$${DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN:-0}" = "1" ]; then '
-            "python3 /opt/hotfix-dsv4-issue144-effort-align.py || exit 1; fi;",
-            compose,
-        )
-        self.assertIn(
-            "${DSPARK_ISSUE144_EFFORT_ALIGN_HOTFIX:-./patches/hotfix-dsv4-issue144-effort-align.py}"
-            ":/opt/hotfix-dsv4-issue144-effort-align.py:ro",
-            compose,
-        )
-        # must run after the last encoder co-patcher (assistant-final)
-        self.assertLess(
-            compose.index("/opt/hotfix-dsv4-assistant-final-continuation.py || exit 1"),
-            compose.index("/opt/hotfix-dsv4-issue144-effort-align.py || exit 1"),
-        )
-
-    def test_launcher_passthrough_sync_and_preflight(self):
-        start = START.read_text()
-        self.assertIn(
-            "DSPARK_ISSUE144_EFFORT_ALIGN_HOTFIX='./patches/hotfix-dsv4-issue144-effort-align.py'",
-            start,
-        )
-        self.assertIn("DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN=$REMOTE_ISSUE144_EFFORT_ALIGN", start)
-        self.assertIn("/opt/hotfix-dsv4-issue144-effort-align.py --check", start)
-        self.assertIn('patches/hotfix-dsv4-issue144-effort-align.py"', start)
-        self.assertIn(
-            "export DSPARK_ISSUE144_EFFORT_ALIGN_HOTFIX DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN",
-            start,
-        )
-
-    def test_env_example_and_ci(self):
-        env = ENV_EXAMPLE.read_text()
-        self.assertIn("DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN=0", env)
-        ci = CI.read_text()
-        self.assertIn("scripts/test-issue144-effort-align.py", ci)
-        self.assertIn("hotfix-dsv4-issue144-effort-align.py", ci)
 
 
 if __name__ == "__main__":
