@@ -1,3 +1,8 @@
+## 2026-09-06
+
+### Added
+- **C128A prefill metadata cache (`DSPARK_ENABLE_C128A_PREFILL_CACHE`, default 0)**: on the pinned Anemll 0.1.1 SM120 attention path, reuse the unchanged local-to-global index conversion across layers sharing the current forward's metadata. C4A, decode and the conversion kernel are unchanged; no persistent buffers are added. Includes fail-closed version/region checks, per-rank launcher synchronization and preflight, and cache-lifetime/C4/mixed-batch regressions. No end-to-end speedup is implied by the reduced conversion count.
+
 ## 2026-09-05
 
 ### Added
