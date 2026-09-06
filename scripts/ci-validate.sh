@@ -79,6 +79,8 @@ py_files+=(
   scripts/test-dspark-swa-prefix.py
   scripts/test-dsml-recovery.py
   scripts/test-mxfp4-indexer-cache.py
+  scripts/test-c128a-prefill-cache.py
+  patches/hotfix-vllm-c128a-prefill-cache.py
   scripts/test-issue144-effort-align.py
   patches/hotfix-dsv4-issue144-effort-align.py
   scripts/test-issue117-shm-ring-buffer.py
@@ -153,6 +155,8 @@ python3 scripts/test-dsml-recovery.py -q
 ok "test-dsml-recovery"
 python3 scripts/test-mxfp4-indexer-cache.py -q
 ok "test-mxfp4-indexer-cache"
+python3 scripts/test-c128a-prefill-cache.py -q
+ok "test-c128a-prefill-cache"
 python3 scripts/test-issue144-effort-align.py -q
 ok "test-issue144-effort-align"
 python3 scripts/test-issue117-shm-ring-buffer.py -q
