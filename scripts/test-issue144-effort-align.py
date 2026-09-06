@@ -385,6 +385,8 @@ class Patcher(unittest.TestCase):
         os.symlink(self.target, link)
         with self.assertRaises(HF.HotfixError):
             HF.inspect(link)
+        with self.assertRaises(HF.HotfixError):
+            HF.apply(link)
 
     def test_cli_check_and_status_do_not_write(self):
         before = self.target.read_bytes()
@@ -405,6 +407,23 @@ class Patcher(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn(str(self.target), proc.stdout)
+
+    def test_cli_check_follows_snapshot_symlink_without_writing_blob(self):
+        blob = self.tmp / "blobs" / "encoder"
+        blob.parent.mkdir()
+        shutil.copyfile(FIX_SNAPSHOT, blob)
+        link = self.tmp / "snapshots" / "revision" / "encoding" / "encoding_dsv4.py"
+        link.parent.mkdir(parents=True)
+        link.symlink_to("../../../blobs/encoder")
+        before = blob.read_bytes()
+        proc = subprocess.run(
+            [sys.executable, str(PATCHER), "--check"],
+            capture_output=True, text=True,
+            env=dict(os.environ, DSPARK_ENCODING_FILE=str(link)),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(blob.read_bytes(), before)
+        self.assertTrue(link.is_symlink())
 
     def test_cli_apply_and_status_roundtrip(self):
         proc = subprocess.run(

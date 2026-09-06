@@ -163,19 +163,12 @@ def _verify_self() -> None:
         raise HotfixError("REGION_NEW does not match its pinned sha256")
 
 
-def _real_file(path: Path) -> Path | None:
-    """Classify a candidate: HF hub snapshots symlink into blobs/, and inspect()
-    only accepts regular files, so resolve to the real file (read-only preflight;
-    apply still writes PRODUCTION_TARGET, never the hub blob)."""
-    return path.resolve() if path.is_file() else None
-
-
 def resolve_encoding_source(environ=os.environ) -> Path | None:
-    """Mirror the compose entrypoint's ENCODING_SOURCE resolution."""
+    """Resolve HF snapshot links for read-only preflight, not the apply target."""
     explicit = environ.get("DSPARK_ENCODING_FILE")
     if explicit:
         p = Path(explicit)
-        return _real_file(p)
+        return p.resolve() if p.is_file() else None
     model = environ.get("DSPARK_MODEL", "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp")
     hub_dir = model.replace("/", "--")
     revision = environ.get("DSPARK_REVISION")
@@ -193,7 +186,7 @@ def resolve_encoding_source(environ=os.environ) -> Path | None:
             if Path(candidate).is_file():
                 return Path(candidate).resolve()
     fallback = Path("/models/deepseek-ai/DeepSeek-V4-Flash-0731/encoding/encoding_dsv4.py")
-    return _real_file(fallback)
+    return fallback.resolve() if fallback.is_file() else None
 
 
 def inspect_bytes(data: bytes) -> str:

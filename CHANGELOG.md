@@ -1,4 +1,12 @@
+## 2026-09-06
+
+### Added
+- **C128A prefill metadata cache (`DSPARK_ENABLE_C128A_PREFILL_CACHE`, default 0)**: on the pinned Anemll 0.1.1 SM120 attention path, reuse the unchanged local-to-global index conversion across layers sharing the current forward's metadata. C4A, decode and the conversion kernel are unchanged; no persistent buffers are added. Includes fail-closed version/region checks, per-rank launcher synchronization and preflight, and cache-lifetime/C4/mixed-batch regressions. No end-to-end speedup is implied by the reduced conversion count.
+
 ## 2026-09-05
+
+### Changed
+- **`DSPARK_MAX_INFLIGHT_PREFILLS` opt-in wording** (compose comment, `.env.dspark.example`, `docs/ENVS.md`, `README.md`): `2` is no longer described as lacking post-r3 live qualification — [#217](https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark/issues/217) qualified it on 2× GB10 TP=2 with `LONG_PREFILL_TOKEN_THRESHOLD=1024` (ABA over three fresh boots, gate26 spread 1.50–1.57× at 4 × 8K, zero preemptions). Default stays `1`; no code or value change.
 
 ### Added
 - **MXFP4 indexer K cache (`DSPARK_ENABLE_MXFP4_INDEXER_CACHE`, default 0)**: `patches/hotfix-vllm-mxfp4-indexer-cache.py` relaxes the fp4 indexer gate in the pinned `v1/attention/backends/mla/indexer.py` (stock `02505c6c…` → patched `bfb0376d…`) so `use_fp4_indexer_cache` also accepts consumer Blackwell (`is_device_capability_family(120)` — GB10/SM121; DeepGEMM ships `sm120_fp4_(paged_)mqa_logits.cuh`), and the Compose gate passes `--attention-config '{"use_fp4_indexer_cache":true}'` on both ranks: the Lightning indexer writes packed MXFP4 K and the logits kernels read half the bytes per scored key. The pinned writer keeps the 132 B/row FP8-size allocation and uses the first half, so this halves indexer K read bandwidth today; the −0.35 KB/token ≈ −9 % physical KV-bytes shrink of item8 §3 additionally needs the spec-side half-row follow-up. The launcher requires `DSPARK_ENABLE_DEEPGEMM_SM121_ALIAS=1` with it (the fp4 logits kernels are not in the persisted DeepGEMM JIT cache). `--check` preflight worker then head; CPU suite `scripts/test-mxfp4-indexer-cache.py`. Live gate before defaulting on: ruler-lite 32K/131K, garble sweep to 900K, 128K TTFT A/B. Design: `docs/CLAUDE/item8-fp4-kv-design.md` §3.
@@ -13,6 +21,8 @@
 
 ### Fixed
 - **Issue #144 effort alignment `--check` preflight on a stock Hugging Face cache**: `resolve_encoding_source()` selected candidates with `Path.is_file()` (which follows symlinks) and returned the symlink path, while `inspect()` classifies with `lstat` and refuses anything that is not a regular file. A hub cache populated by a normal `hf download` stores snapshot entries as relative symlinks into `blobs/`, so `DSPARK_ENABLE_ISSUE144_EFFORT_ALIGN=1` failed closed in the launcher's worker preflight (`FAIL-CLOSED: target is not a regular file: …/snapshots/<rev>/encoding/encoding_dsv4.py`) and no rank started. The resolver now returns the real path of each candidate; `--check` is read-only classification, `inspect()` still refuses symlinks for the apply path, and `apply()` continues to write only `PRODUCTION_TARGET` (the container-layer encoder copy), never a hub blob.
+
+- **Vision-Exp per-prompt image cap is no longer hardcoded to 16**: `patches/vision_exp/processor.py` declared `get_supported_mm_limits() -> {"image": 16}`, so vLLM's `validate_num_items` clamped every request to `min(16, --limit-mm-per-prompt)` and raising `LIMIT_MM_PER_PROMPT` to `image=32` had no effect (17+ images returned HTTP 400 "At most 16 image(s)" even though the rendered Compose command passed `{"image":32}`). The processor now returns `None` (unlimited), making `--limit-mm-per-prompt` (`LIMIT_MM_PER_PROMPT`, Compose fallback `image=8`) the single source of truth. `.env.dspark.example` is back to documenting the `image=N` form (a bare `{"image":8}` loses its quotes when the start script `source`s the file, `{image:8}`, and Anemll's json.loads argparse rejects it) and `scripts/ci-validate.sh` now gates that example form. Live-verified on the 2× GB10 TP=2 lane: 32 images → 200, 33 → "At most 32 image(s)".
 
 ## 2026-09-04
 
