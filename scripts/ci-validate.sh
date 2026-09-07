@@ -143,6 +143,8 @@ python3 scripts/test-issue141-sparse-mla-decode-chunk.py -q
 ok "test-issue141-sparse-mla-decode-chunk"
 python3 scripts/test-issue136-xgrammar-termination.py -q
 ok "test-issue136-xgrammar-termination"
+python3 scripts/test-build-rsync-guard.py -q
+ok "test-build-rsync-guard"
 python3 scripts/test-issue191-toolcall-failclosed.py -q
 ok "test-issue191-toolcall-failclosed"
 python3 scripts/test-dspark-block-k.py -q

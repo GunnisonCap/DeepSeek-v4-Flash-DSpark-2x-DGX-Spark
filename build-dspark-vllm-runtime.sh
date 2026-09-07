@@ -84,6 +84,11 @@ build_one() {
     docker run --rm --entrypoint /opt/env/bin/python "$stage_c_tag" -c \
       "import vllm; print('dspark nvfp4 stage-c image ok', vllm.__version__)"
   else
+    # rsync --delete mirrors the local checkout: a wrong WORKER_CHECKOUT
+    # (typo, stale value, or a directory used for something else) would delete
+    # whatever lives there. Only sync into a directory that is missing, empty,
+    # or already a DSpark recipe checkout.
+    ssh "$host" "if [ -d '$checkout' ] && [ -n \"\$(ls -A '$checkout' 2>/dev/null)\" ] && [ ! -f '$checkout/docker-compose.dspark.yml' ]; then echo 'refusing to rsync --delete into $checkout: not an empty or DSpark recipe checkout directory' >&2; exit 1; fi"
     ssh "$host" "mkdir -p '$checkout'"
     rsync -az --delete "$SCRIPT_DIR/" "$host:$checkout/"
     ssh "$host" "cd '$checkout' && DSPARK_BASE_IMAGE='$DSPARK_BASE_IMAGE' DSPARK_VLLM_IMAGE='$DSPARK_VLLM_IMAGE' WORKER_BUILD=0 ./build-dspark-vllm-runtime.sh"
