@@ -436,18 +436,19 @@ curl :8888/v1/chat/completions -H 'Content-Type: application/json' -d '{
 }'
 ```
 
-**pi image support** — pi keys image handling off the model's `input` array.
-A model entry that only lists `"text"` makes pi treat the endpoint as
-text-only and **drop images before the request is sent**, logging exactly
-`Current model does not support images. The image will be omitted from this
-request.` even though this server accepts `image_url`. Because this recipe is
-a vision model, [`pi-models.dspark.example.json`](pi-models.dspark.example.json)
-ships `"input": ["text", "image"]` so pi forwards screenshots as base64
-`image_url` parts. If you already copied an older copy that only had
-`["text"]`, add the `"image"` entry yourself and restart pi fully (a new
-session, not just `/reload`) before testing images. Keep images on a **user**
-turn — putting an `image_url` on `system` / `assistant` / `tool` returns HTTP
-400 (see the image usage notes above).
+**pi image support** — [`pi-models.dspark.example.json`](pi-models.dspark.example.json)
+declares `"input": ["text", "image"]` for `deepseek-v4-flash-vision-exp`.
+The [pi model contract](https://github.com/badlogic/pi-mono/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/models.md#model-configuration)
+uses `input` to declare supported input types; `["text"]` is text-only.
+If you copied an older example to `~/.pi/agent/models.json`, add `"image"`
+to that model's `input` array without replacing your other settings.
+The [same revision's reload instructions](https://github.com/badlogic/pi-mono/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/models.md#full-example)
+say opening `/model` reloads the file without restarting pi; select the
+updated model before attaching an image. Other client versions may differ.
+Send screenshots on a **user** turn, following the server's image usage
+notes above, not as structured images on `system`, `assistant`, `tool`, or
+`function` turns. The example declaration alone does not verify screenshot
+delivery through a live pi session.
 
 **pi thinking budget** — the budget needs the boot flag **and** the pi model entry, so
 [`pi-models.dspark.example.json`](pi-models.dspark.example.json) ships
