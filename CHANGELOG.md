@@ -1,7 +1,7 @@
 ## 2026-09-08
 
 ### Fixed
-- **`bench-patches.sh` short-context TTFT prompts are generated again**: `run_ttft` built its prompt as `python3 -c "print('hello ' * (N * 4 / 3 // 6))"`; in Python 3 the `/` yields a float and `'hello ' * <float>` raises `TypeError`, so the `|| echo "hello world"` fallback fired silently for *every* labelled size (256…8192) and the whole TTFT section measured the same 2-token prompt. The expression is now integer arithmetic (`4 // 3 // 6`). `scripts/bench-patches.sh` is also added to the `bash -n` CI gate (it was ungated), and CPU suite `scripts/test-bench-patches-prompt.py` pins the integer form and per-size prompt lengths.
+- **`bench-patches.sh` short-context TTFT prompts are generated again**: floating-point division made string repetition fail, silently replacing every labelled size with `"hello world"`. Integer arithmetic preserves the existing approximate sizing convention. The host regression executes the shipped shell assignment across the declared sizes, checking valid, increasing prompts rather than source text or a duplicate formula; CI also checks shell syntax. Historical prompt-length comparisons from the faulty path remain invalid and require fresh measurements.
 
 ## 2026-09-06
 

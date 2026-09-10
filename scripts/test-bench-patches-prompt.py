@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""CPU regression for bench-patches.sh prompt generation (float-repetition bug).
+"""Host regression for the shipped TTFT prompt assignment, including its fallback.
 
-run_ttft built its prompt as:  python3 -c "print('hello ' * (N * 4 / 3 // 6))"
-In Python 3 the `/` yields a float, `'hello ' * <float>` raises TypeError, and
-the shell `|| echo "hello world"` fallback silently fired for EVERY labelled
-prompt size (256…8192): the whole short-context TTFT section measured the same
-2-token prompt. The shipped expression must stay integer arithmetic.
+Only the assignment runs: no benchmark requests, containers, or result files.
 """
 import re
 import subprocess
@@ -16,46 +12,31 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "scripts" / "bench-patches.sh"
 SOURCE = BENCH.read_text()
 
-_m = re.search(r"""prompt=\$\(python3 -c "print\('hello ' \* \(([^)]+)\)\)\"""", SOURCE)
-assert _m, "prompt-generation line not found in bench-patches.sh"
-EXPR = _m.group(1).strip()
-
-
-class PromptExpression(unittest.TestCase):
-    def test_expression_is_integer_arithmetic(self):
-        # No single `/` (float division); `//` floor division is required so
-        # str * <int> never raises TypeError on any Python 3.
-        self.assertNotRegex(EXPR, r"(?<!/)/(?!/)", EXPR)
-
-    def test_expression_matches_shipped_line(self):
-        self.assertIn(f"""python3 -c "print('hello ' * ({EXPR}))\"""", SOURCE)
+_m = re.search(r"^run_ttft\(\) \{(.*?)^\}", SOURCE, re.M | re.S)
+assert _m, "run_ttft function not found in bench-patches.sh"
+_assignment = re.search(r"^[ \t]*prompt=.*$", _m.group(1), re.M)
+assert _assignment, "prompt assignment not found in run_ttft"
+ASSIGNMENT = _assignment.group(0)
+SIZES = sorted({int(n) for n in re.findall(r"^[ \t]*run_ttft\s+(\d+)\s", SOURCE, re.M)})
+assert SIZES, "TTFT size declarations not found in bench-patches.sh"
 
 
 class PromptGeneration(unittest.TestCase):
-    def test_all_bench_sizes_generate_real_prompts(self):
-        for n in (256, 512, 1024, 2048, 4096, 8192):
+    def test_declared_sizes_generate_increasing_prompts_without_fallback(self):
+        previous_length = 0
+        for n in SIZES:
             with self.subTest(n=n):
-                expr = EXPR.replace("$prompt_tokens", str(n))
+                # Execute the shell assignment unchanged so a fallback is observed,
+                # rather than reconstructing or evaluating the arithmetic in Python.
                 out = subprocess.run(
-                    ["python3", "-c", f"print('hello ' * ({expr}))"],
+                    ["bash", "-c", 'set -euo pipefail\nprompt_tokens=$1\n'
+                     + ASSIGNMENT + '\nprintf \'%s\' "$prompt"', "prompt-check", str(n)],
                     capture_output=True, text=True,
                 )
                 self.assertEqual(out.returncode, 0, out.stderr)
-                words = out.stdout.split()
-                expected = eval(expr)  # same arithmetic, computed by the harness
-                self.assertEqual(len(words), expected)
-                self.assertTrue(all(w == "hello" for w in words))
-                # The whole point: the fallback must never be what we send.
-                self.assertNotEqual(out.stdout.strip(), "hello world")
-
-    def test_sizes_are_distinguishable(self):
-        # Every labelled size must produce a different prompt, or the TTFT
-        # table silently collapses rows again.
-        lengths = set()
-        for n in (256, 512, 1024, 2048, 4096, 8192):
-            expr = EXPR.replace("$prompt_tokens", str(n))
-            lengths.add(eval(expr))
-        self.assertEqual(len(lengths), 6, lengths)
+                self.assertRegex(out.stdout, r"\A(?:hello )+\Z")
+                self.assertGreater(len(out.stdout), previous_length)
+                previous_length = len(out.stdout)
 
 
 if __name__ == "__main__":

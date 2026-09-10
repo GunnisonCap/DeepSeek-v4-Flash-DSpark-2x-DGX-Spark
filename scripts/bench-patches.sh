@@ -74,10 +74,7 @@ log ""
 run_ttft() {
   local prompt_tokens=$1
   local label=$2
-  # Generate a prompt of ~prompt_tokens words (rough: 1 token ≈ 1.3 chars).
-  # Integer arithmetic only: in Python 3 `/` yields a float and
-  # 'hello ' * <float> raises TypeError, which the fallback below silently
-  # replaced with the same 2-token "hello world" for every labelled size.
+  # Keep repetition integral so Python does not silently select the tiny fallback.
   local prompt
   prompt=$(python3 -c "print('hello ' * ($prompt_tokens * 4 // 3 // 6))" 2>/dev/null || echo "hello world")
   
