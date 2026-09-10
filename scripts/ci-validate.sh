@@ -130,6 +130,8 @@ python3 scripts/test-numeric-knob-validation.py -q
 ok "test-numeric-knob-validation"
 python3 scripts/test-env-normalisation.py -q
 ok "test-env-normalisation"
+python3 scripts/test-stop-name-filter.py -q
+ok "test-stop-name-filter"
 python3 scripts/test-served-model-alias.py -q
 ok "test-served-model-alias"
 python3 scripts/test-dspark-api-keys.py -q

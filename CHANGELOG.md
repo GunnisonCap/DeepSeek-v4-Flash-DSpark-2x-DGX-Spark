@@ -1,3 +1,8 @@
+## 2026-09-08
+
+### Fixed
+- **Stop-script container name filters are now anchored**: match only `<project>[-_]<service>([-_]<index>)?` for the DSpark rank and legacy sidecar, treating project punctuation literally through local and worker command construction. Compose-label ownership is unchanged. `scripts/test-stop-name-filter.py`, registered in `scripts/ci-validate.sh`, uses isolated command recorders to check own/foreign selections and label-owned cleanup without Docker or SSH.
+
 ## 2026-09-06
 
 ### Added
