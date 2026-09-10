@@ -131,6 +131,8 @@ python3 scripts/test-numeric-knob-validation.py -q
 ok "test-numeric-knob-validation"
 python3 scripts/test-env-normalisation.py -q
 ok "test-env-normalisation"
+python3 scripts/test-stop-name-filter.py -q
+ok "test-stop-name-filter"
 python3 scripts/test-served-model-alias.py -q
 ok "test-served-model-alias"
 python3 scripts/test-dspark-api-keys.py -q
@@ -149,6 +151,8 @@ python3 scripts/test-issue141-sparse-mla-decode-chunk.py -q
 ok "test-issue141-sparse-mla-decode-chunk"
 python3 scripts/test-issue136-xgrammar-termination.py -q
 ok "test-issue136-xgrammar-termination"
+python3 scripts/test-build-rsync-guard.py -q
+ok "test-build-rsync-guard"
 python3 scripts/test-issue191-toolcall-failclosed.py -q
 ok "test-issue191-toolcall-failclosed"
 python3 scripts/test-dspark-block-k.py -q
