@@ -213,6 +213,14 @@ else
   ok "GPU thinking-budget hot path has no CPU sync or token-buffer scan"
 fi
 
+# The GB10 editable install is the only boot-chain step whose failure would
+# otherwise surface minutes later inside vLLM, far from the cause.
+if grep -Fq 'python3 -m pip install -e /opt/vllm-gb10-hybrid-nvfp4 --no-deps || exit 1;' docker-compose.dspark.yml; then
+  ok "GB10 plugin pip install is fail-closed (|| exit 1)"
+else
+  bad "GB10 plugin pip install lost its fail-closed guard"
+fi
+
 launch_files=(
   docker-compose.dspark.yml
   start-deepseek-v4-flash-dspark.sh
