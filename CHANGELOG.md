@@ -1,7 +1,7 @@
 ## 2026-09-08
 
 ### Fixed
-- **GB10 plugin `pip install` is fail-closed**: the `ENABLE_VLLM_GB10_PATCH=1` boot step ran `python3 -m pip install -e /opt/vllm-gb10-hybrid-nvfp4 --no-deps;` — the only step in the compose boot chain without `|| exit 1`. A failed editable install let the boot continue into `VLLM_PLUGINS=gb10_hybrid_nvfp4` / `--quantization modelopt_gb10_hybrid`, surfacing minutes later deep inside vLLM instead of at the cause. The line now fails the boot immediately, matching the rest of the chain; a ci-validate grep guard pins the `|| exit 1`.
+- **GB10 plugin `pip install` is fail-closed**: the `ENABLE_VLLM_GB10_PATCH=1` boot step ran `python3 -m pip install -e /opt/vllm-gb10-hybrid-nvfp4 --no-deps;` — the only step in the compose boot chain without `|| exit 1`. A failed editable install let the boot continue into `VLLM_PLUGINS=gb10_hybrid_nvfp4` / `--quantization modelopt_gb10_hybrid`, surfacing minutes later deep inside vLLM instead of at the cause. The line now fails the boot immediately, matching the rest of the chain. CI exercises the shipped optional block with fake install and serving-continuation recorders for successful, failed, and disabled installs, including the rendered command when Docker Compose is available.
 
 ## 2026-09-06
 

@@ -71,6 +71,7 @@ py_files+=(
   scripts/test-redact-api-key-log.py
   scripts/test-hotfix-atomic-transaction.py
   scripts/test-python-hotfix-failclosed.py
+  scripts/test-gb10-install-failclosed.py
   scripts/test-dsv4-vision-exp-hotfix.py
   scripts/test-issue141-sparse-mla-decode-chunk.py
   scripts/test-issue136-xgrammar-termination.py
@@ -140,6 +141,8 @@ python3 scripts/test-hotfix-atomic-transaction.py -q
 ok "test-hotfix-atomic-transaction"
 python3 scripts/test-python-hotfix-failclosed.py -q
 ok "test-python-hotfix-failclosed"
+python3 scripts/test-gb10-install-failclosed.py -q
+ok "test-gb10-install-failclosed"
 python3 scripts/test-dsv4-vision-exp-hotfix.py -q
 ok "test-dsv4-vision-exp-hotfix"
 python3 scripts/test-issue141-sparse-mla-decode-chunk.py -q
@@ -211,14 +214,6 @@ if grep -nE '\.cpu\(|\.tolist\(|\.detach\(|all_token_ids|DEFAULT_THINKING_TOKEN_
   cat /tmp/ci-budget-hotpath-hits.txt >&2 || true
 else
   ok "GPU thinking-budget hot path has no CPU sync or token-buffer scan"
-fi
-
-# The GB10 editable install is the only boot-chain step whose failure would
-# otherwise surface minutes later inside vLLM, far from the cause.
-if grep -Fq 'python3 -m pip install -e /opt/vllm-gb10-hybrid-nvfp4 --no-deps || exit 1;' docker-compose.dspark.yml; then
-  ok "GB10 plugin pip install is fail-closed (|| exit 1)"
-else
-  bad "GB10 plugin pip install lost its fail-closed guard"
 fi
 
 launch_files=(
