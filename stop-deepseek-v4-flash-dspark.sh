@@ -73,19 +73,16 @@ filter_compose_empty_project() {
   grep -v 'No resource found to remove for project' || true
 }
 
-# docker's --filter name= takes an UNANCHORED regular expression: a plain
-# "name=${project}-vllm-dspark" also matches any container whose name merely
-# contains that substring (e.g. a neighbouring checkout's
-# "deepseek-v4-flash-vllm-dspark-old"), and regex metacharacters in a project
-# name (LEGACY_PROJECT_NAME is derived from the checkout directory name and may
-# contain dots) would be read as regex. Escape metacharacters and anchor to the
-# compose container-name shape <project>[-_]<service>([-_]<index>)? so a stop
-# can only ever match this project's own containers.
+# Docker name filters are regexes, not ownership labels.
+# Quote separately for commands parsed again by bash or the worker shell.
 project_name_filters() {
   local re
   re=$(printf '%s' "$1" | sed 's/[][\\.^$*+?{}()|]/\\&/g')
   RANK_NAME_RE="^${re}[-_]vllm-dspark([-_][0-9]+)?\$"
   SIDECAR_NAME_RE="^${re}[-_]vl-sidecar([-_][0-9]+)?\$"
+  PROJECT_SH="'${1//\'/\'\\\'\'}'"
+  RANK_NAME_SH="'${RANK_NAME_RE//\'/\'\\\'\'}'"
+  SIDECAR_NAME_SH="'${SIDECAR_NAME_RE//\'/\'\\\'\'}'"
 }
 if ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_HOST" "true" >/dev/null 2>&1; then
   WORKER_REACHABLE=1
@@ -118,11 +115,11 @@ force_rm_project_containers() {
   local cmd
   project_name_filters "$project"
   cmd=$(cat <<EOF
-ids=\$(docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null || true)
-names=\$(docker ps -aq --filter "name=${SIDECAR_NAME_RE}" --filter "name=${RANK_NAME_RE}" 2>/dev/null || true)
+ids=\$(docker ps -aq --filter label=com.docker.compose.project=${PROJECT_SH} 2>/dev/null || true)
+names=\$(docker ps -aq --filter name=${SIDECAR_NAME_SH} --filter name=${RANK_NAME_SH} 2>/dev/null || true)
 all=\$(printf '%s\n%s\n' "\$ids" "\$names" | awk 'NF' | sort -u)
 if [ -n "\$all" ]; then
-  echo "Force-removing containers for project $project..."
+  echo "Force-removing containers for project "${PROJECT_SH}"..."
   # shellcheck disable=SC2086
   docker rm -f \$all >/dev/null 2>&1 || true
 fi
@@ -153,7 +150,7 @@ stop_vl_sidecar_worker() {
   fi
   project_name_filters "$project"
   ssh "$WORKER_HOST" "
-    ids=\$(docker ps -aq --filter 'name=${SIDECAR_NAME_RE}' 2>/dev/null || true)
+    ids=\$(docker ps -aq --filter name=${SIDECAR_NAME_SH} 2>/dev/null || true)
     if [ -n \"\$ids\" ]; then docker rm -f \$ids >/dev/null 2>&1 || true; fi
     rm -f '$WORKER_DIR/docker-compose.vl-sidecar.yml' 2>/dev/null || true
   " || true
@@ -196,21 +193,21 @@ stop_main_worker() {
   ssh "$host" "
     cd '$wdir' || exit 1
     if {
-      docker ps -aq --filter 'label=com.docker.compose.project=$project'
-      docker network ls -q --filter 'label=com.docker.compose.project=$project'
-      docker volume ls -q --filter 'label=com.docker.compose.project=$project'
-      docker ps -aq --filter 'name=${RANK_NAME_RE}'
+      docker ps -aq --filter label=com.docker.compose.project=${PROJECT_SH}
+      docker network ls -q --filter label=com.docker.compose.project=${PROJECT_SH}
+      docker volume ls -q --filter label=com.docker.compose.project=${PROJECT_SH}
+      docker ps -aq --filter name=${RANK_NAME_SH}
     } | grep -q .; then
-      echo 'Stopping DSpark on worker $host (project $project)...'
-      docker ps -aq --filter 'name=${RANK_NAME_RE}' | xargs -r docker rm -f >/dev/null 2>&1 || true
+      echo 'Stopping DSpark on worker $host (project '${PROJECT_SH}')...'
+      docker ps -aq --filter name=${RANK_NAME_SH} | xargs -r docker rm -f >/dev/null 2>&1 || true
       env -u MASTER_ADDR -u MASTER_PORT -u NODE_RANK -u HEADLESS \
         COMPOSE_DISABLE_ENV_FILE=1 $hf_env \
         VLLM_HOST_IP='$vllm_ip' NODE_RANK=$rank HEADLESS=1 \
-        docker compose -p '$project' --env-file .env.dspark \
+        docker compose -p ${PROJECT_SH} --env-file .env.dspark \
           $compose_files down --remove-orphans -t 1 2>&1 \
           | grep -v 'No resource found to remove for project' || true
     else
-      echo 'No DSpark worker resources for project $project on $host; skipping.'
+      echo 'No DSpark worker resources for project '${PROJECT_SH}' on $host; skipping.'
     fi
   " || stop_warn "main DSpark worker stop failed on ${host}"
 }

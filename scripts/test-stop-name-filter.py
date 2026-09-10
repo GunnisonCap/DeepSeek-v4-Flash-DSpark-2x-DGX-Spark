@@ -1,177 +1,184 @@
 #!/usr/bin/env python3
-"""CPU regressions for the anchored container-name filters in the stop script.
+"""Host-only shutdown selection checks; Docker, SSH and rm are recorders.
 
-docker's `--filter name=` takes an *unanchored* regular expression, so the old
-`name=${project}-vllm-dspark` patterns matched (and `docker rm -f`'d) any
-container whose name merely *contained* the string. The stop script now routes
-every name filter through project_name_filters(), which escapes regex
-metacharacters in the project name and anchors the pattern to the compose
-container-name shape <project>[-_]<service>([-_]<index>)?.
-
-These tests extract the shipped helper from the stop script, have bash produce
-the two filter regexes per project, and evaluate them against a match/reject
-matrix with Python re (equivalent to Go's RE2 for this construct subset).
+The actual stop script runs with a private PATH and an empty operator env.
+Worker command strings are parsed by a local POSIX shell. Python re models
+Docker's name-filter subset here; this does not test Docker/Compose itself.
 """
-import re
-import shlex
+import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STOP = ROOT / "stop-deepseek-v4-flash-dspark.sh"
-SOURCE = STOP.read_text()
 
-_fn_start = SOURCE.index("project_name_filters() {")
-HELPER_FN = SOURCE[_fn_start:SOURCE.index("\n}", _fn_start) + 2]
+RECORDER = r'''
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import sys
 
+# grep -q may close a resource query's pipe after the first result.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-def filters_for(project: str) -> tuple[str, str]:
-    script = f"""set -euo pipefail
-{HELPER_FN}
-project_name_filters {project!r}
-printf '%s\\n' "$RANK_NAME_RE"
-printf '%s\\n' "$SIDECAR_NAME_RE"
-"""
-    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    rank_re, sidecar_re = result.stdout.splitlines()
-    return rank_re, sidecar_re
-
-
-class HelperShape(unittest.TestCase):
-    def test_helper_is_defined_before_first_use(self):
-        self.assertLess(SOURCE.index("project_name_filters() {"),
-                        SOURCE.index('project_name_filters "$project"'))
-
-    def test_all_filter_callers_anchored(self):
-        # Every docker --filter name= site must consume the anchored variables;
-        # the unanchored ${project}-<service> form must not come back. Comments
-        # (including the helper's own explanation of the old form) are ignored.
-        code = "\n".join(line for line in SOURCE.splitlines()
-                         if not line.lstrip().startswith("#"))
-        self.assertNotIn("name=${project}-", code)
-        self.assertEqual(SOURCE.count("name=${RANK_NAME_RE}"), 5)
-        self.assertEqual(SOURCE.count("name=${SIDECAR_NAME_RE}"), 3)
-        self.assertEqual(SOURCE.count('project_name_filters "$project"'), 5)
-
-
-class RankFilterMatrix(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.rank_re, cls.sidecar_re = filters_for("deepseek-v4-flash")
-
-    def assert_match(self, pattern, name, want):
-        self.assertEqual(re.search(pattern, name) is not None, want, f"{name!r} vs {pattern!r}")
-
-    def test_rank_matches_own_containers(self):
-        for name in ("deepseek-v4-flash-vllm-dspark-1",
-                     "deepseek-v4-flash-vllm-dspark-12",
-                     "deepseek-v4-flash_vllm-dspark_1",   # compose v1 naming
-                     "deepseek-v4-flash-vllm-dspark"):    # bare manual name
-            with self.subTest(name=name):
-                self.assert_match(self.rank_re, name, True)
-
-    def test_rank_rejects_foreign_containers(self):
-        for name in ("deepseek-v4-flash-vllm-dspark-old",       # suffix overmatch
-                     "deepseek-v4-flash-vllm-dspark-1-backup",
-                     "deepseek-v4-flash-vllm-dspark-1a",
-                     "deepseek-v4-flash-vllm-dspark-1-2",
-                     "my-deepseek-v4-flash-vllm-dspark-1",      # prefix overmatch
-                     "deepseek-v4-flash-vllm-dspark2-1",
-                     "deepseek-v4-flash-vl-sidecar-1",          # other service
-                     "deepseek-v4-flash-xvllm-dspark-1",
-                     "deepseek-v4-flash-vllm-dsparkx-1"):
-            with self.subTest(name=name):
-                self.assert_match(self.rank_re, name, False)
-
-    def test_sidecar_matches_own_containers(self):
-        for name in ("deepseek-v4-flash-vl-sidecar-1",
-                     "deepseek-v4-flash_vl-sidecar_1",
-                     "deepseek-v4-flash-vl-sidecar"):
-            with self.subTest(name=name):
-                self.assert_match(self.sidecar_re, name, True)
-
-    def test_sidecar_rejects_foreign_containers(self):
-        for name in ("deepseek-v4-flash-vl-sidecar-old",
-                     "deepseek-v4-flash-vllm-dspark-1",
-                     "my-deepseek-v4-flash-vl-sidecar-1"):
-            with self.subTest(name=name):
-                self.assert_match(self.sidecar_re, name, False)
+command = Path(sys.argv[0]).name
+args = sys.argv[1:]
+host = os.environ.get("RECORDER_HOST", "head")
+entry = {"command": command, "args": args, "host": host}
+selected = []
+if command == "docker" and args[:1] == ["ps"]:
+    filters = [args[i + 1] for i, arg in enumerate(args) if arg == "--filter"]
+    names = [value[5:] for value in filters if value.startswith("name=")]
+    labels = [value[6:] for value in filters if value.startswith("label=")]
+    for item in json.loads(Path(os.environ["RECORDER_FIXTURE"]).read_text()):
+        if (not names or any(re.search(pattern, item["name"]) for pattern in names)) and (
+            not labels or any(label == "com.docker.compose.project=" + item["label"]
+                              for label in labels)
+        ):
+            selected.append(item["id"])
+    entry["selected"] = selected
+with open(os.environ["RECORDER_LOG"], "a") as log:
+    log.write(json.dumps(entry) + "\n")
+if command == "ssh":
+    while args and args[0] == "-o":
+        args = args[2:]
+    env = dict(os.environ, RECORDER_HOST=args[0])
+    sys.exit(subprocess.run(["sh", "-c", " ".join(args[1:])], env=env).returncode)
+if selected:
+    print("\n".join(selected))
+'''
 
 
-class MetacharProjectNames(unittest.TestCase):
-    def test_dotted_project_name_is_literal(self):
-        rank_re, sidecar_re = filters_for("deepseek.v4.foo")
-        self.assertIsNotNone(re.search(rank_re, "deepseek.v4.foo-vllm-dspark-1"))
-        self.assertIsNotNone(re.search(sidecar_re, "deepseek.v4.foo-vl-sidecar-1"))
-        # Without escaping, the dots would act as wildcards and match these.
-        self.assertIsNone(re.search(rank_re, "deepseekXv4Xfoo-vllm-dspark-1"))
-        self.assertIsNone(re.search(rank_re, "deepseek-v4.foo-vllm-dspark-1"))
-
-    def test_plus_and_brackets_are_literal(self):
-        rank_re, _ = filters_for("ab+c[d]")
-        self.assertIsNotNone(re.search(rank_re, "ab+c[d]-vllm-dspark-1"))
-        self.assertIsNone(re.search(rank_re, "abbbbc[d]-vllm-dspark-1"))
-        self.assertIsNone(re.search(rank_re, "ab+cd-vllm-dspark-1"))
-
-    def test_filter_is_valid_for_go_regexp_constructs(self):
-        # The pattern must only use constructs valid in both Python re and
-        # Go's RE2: anchored ^...$, [-_], ([-_][0-9]+)?, and \\-escaped
-        # punctuation. Guards against accidentally emitting pythonisms later.
-        rank_re, sidecar_re = filters_for("deepseek-v4-flash")
-        for pattern in (rank_re, sidecar_re):
-            with self.subTest(pattern=pattern):
-                self.assertTrue(pattern.startswith("^"), pattern)
-                self.assertTrue(pattern.endswith("$"), pattern)
-                self.assertNotIn("\\-", pattern)  # RE2 rejects \-
-
-
-class ForceRmAssembly(unittest.TestCase):
-    """The heredoc-built remote command in force_rm_project_containers must
-    deliver the anchored filters to docker unmangled (end-anchor `$` intact,
-    no premature expansion) on both the local `bash -c` and ssh paths."""
-
-    def run_force_rm(self, project: str) -> list[str]:
-        fn_start = SOURCE.index("force_rm_project_containers() {")
-        fn = SOURCE[fn_start:SOURCE.index("\n}\n", fn_start) + 3]
-        workdir = Path(tempfile.mkdtemp())
-        log = workdir / "docker.log"
-        docker = workdir / "docker"
-        docker.write_text(
-            "#!/usr/bin/env bash\n"
-            'printf "%s\\n" "$@" >> "$DOCKER_LOG"\n'
-            "exit 0\n"
+def run_stop(source, projects, fixture):
+    with tempfile.TemporaryDirectory(prefix="stop-name-filter-") as tmp:
+        workdir = Path(tmp)
+        bindir = workdir / "bin"
+        bindir.mkdir()
+        # No inherited PATH: an unstubbed Docker/SSH command cannot fall through.
+        for command in ("bash", "sh", "dirname", "basename", "tr", "sed", "cat",
+                        "awk", "sort", "grep", "xargs", "env"):
+            executable = shutil.which(command)
+            if executable is None:
+                raise RuntimeError(f"required host tool missing: {command}")
+            (bindir / command).symlink_to(executable)
+        for command in ("docker", "ssh", "rm"):
+            path = bindir / command
+            path.write_text(f"#!{sys.executable}\n" + RECORDER)
+            path.chmod(0o755)
+        script = workdir / STOP.name
+        script.write_text(source)
+        fixture_path = workdir / "containers.json"
+        fixture_path.write_text(json.dumps(fixture))
+        log = workdir / "commands.jsonl"
+        env = {
+            "PATH": str(bindir), "HOME": tmp, "LC_ALL": "C", "USER": "recorder",
+            "ENV_FILE": str(workdir / "absent.env"),
+            "PROJECT_NAME": projects[0], "LEGACY_PROJECT_NAME": projects[-1],
+            "WORKER_HOST": "worker", "WORKER2_HOST": "worker2",
+            "WORKER_DIR": tmp, "WORKER2_DIR": tmp,
+            "RECORDER_FIXTURE": str(fixture_path), "RECORDER_LOG": str(log),
+        }
+        result = subprocess.run(
+            [str(bindir / "bash"), str(script)], cwd=tmp, env=env,
+            capture_output=True, text=True, timeout=30,
         )
-        docker.chmod(0o755)
-        script = f"""set -euo pipefail
-export DOCKER_LOG={shlex.quote(str(log))}
-export PATH={shlex.quote(str(workdir))}:$PATH
-stop_warn() {{ echo "warn: $*" >&2; }}
-WORKER_REACHABLE=0
-WORKER2_HOST=
-{HELPER_FN}
-{fn}
-force_rm_project_containers {shlex.quote(project)} local
-"""
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
-        lines = log.read_text().splitlines() if log.exists() else []
-        shutil.rmtree(workdir)
-        assert result.returncode == 0, result.stderr
-        return lines
+        entries = [json.loads(line) for line in log.read_text().splitlines()]
+        return result, entries
 
-    def test_filters_arrive_anchored_and_intact(self):
-        args = self.run_force_rm("deepseek-v4-flash")
-        self.assertIn("name=^deepseek-v4-flash[-_]vl-sidecar([-_][0-9]+)?$", args)
-        self.assertIn("name=^deepseek-v4-flash[-_]vllm-dspark([-_][0-9]+)?$", args)
-        # The label filter survives alongside, still exact.
-        self.assertIn("label=com.docker.compose.project=deepseek-v4-flash", args)
 
-    def test_metachar_project_arrives_escaped(self):
-        args = self.run_force_rm("deepseek.v4.foo")
-        self.assertIn(r"name=^deepseek\.v4\.foo[-_]vllm-dspark([-_][0-9]+)?$", args)
+def containers(project):
+    own = []
+    foreign = []
+    for service in ("vllm-dspark", "vl-sidecar"):
+        own.extend((f"{project}-{service}", f"{project}-{service}-1",
+                    f"{project}-{service}-12", f"{project}_{service}_1"))
+        foreign.extend((f"{project}-{service}-old", f"{project}-{service}-1-backup",
+                        f"{project}-{service}-1a", f"{project}-{service}-1-2",
+                        f"my-{project}-{service}-1", f"{project}-{service}2-1",
+                        f"{project}-x{service}-1", f"{project}-{service}x-1"))
+    return own, foreign
+
+
+class StopNameFilters(unittest.TestCase):
+    def check_selection(self, projects, own, foreign, labelled=False):
+        fixture = []
+        for name in own + foreign:
+            fixture.append({"id": f"container{len(fixture)}", "name": name, "label": "foreign"})
+        if labelled:
+            for project in projects:
+                fixture.append({"id": f"container{len(fixture)}", "name": "unrelated-service",
+                                "label": project})
+        result, entries = run_stop(STOP.read_text(), projects, fixture)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        expected_removed = {item["id"] for item in fixture
+                            if item["name"] in own or item["label"] in projects}
+        for host in ("head", "worker", "worker2"):
+            with self.subTest(host=host):
+                calls = [entry for entry in entries if entry["host"] == host
+                         and entry["command"] == "docker"]
+                removed = {arg for entry in calls if entry["args"][:2] == ["rm", "-f"]
+                           for arg in entry["args"][2:]}
+                self.assertEqual(removed, expected_removed)
+                compose_projects = {entry["args"][entry["args"].index("-p") + 1]
+                                    for entry in calls if entry["args"][:1] == ["compose"]}
+                self.assertEqual(compose_projects, set(projects) if own or labelled else set())
+                for entry in calls:
+                    if entry["args"][:1] != ["ps"]:
+                        continue
+                    args = entry["args"]
+                    filters = [args[i + 1] for i, arg in enumerate(args) if arg == "--filter"]
+                    name_filters = [value for value in filters if value.startswith("name=")]
+                    if name_filters:
+                        # Check each query, not just the union: a later sweep must
+                        # not hide a broken worker or head filter.
+                        services = {service for service in ("vllm-dspark", "vl-sidecar")
+                                    if any(service in value for value in name_filters)}
+                        candidates = [{item["id"] for item in fixture if item["name"] in own
+                                       and any(item["name"] in (
+                                           f"{project}-{service}", f"{project}-{service}-1",
+                                           f"{project}-{service}-12", f"{project}_{service}_1")
+                                               for service in services)} for project in projects]
+                        self.assertIn(set(entry["selected"]), candidates, entry)
+                    else:
+                        expected = {item["id"] for item in fixture
+                                    if "label=com.docker.compose.project=" + item["label"] in filters}
+                        self.assertEqual(set(entry["selected"]), expected, entry)
+
+    def test_current_and_legacy_projects_with_label_owned_resources(self):
+        projects = ("deepseek-v4-flash", "deepseek.v4.foo")
+        names = [containers(project) for project in projects]
+        self.check_selection(projects, [name for own, _ in names for name in own],
+                             [name for _, foreign in names for name in foreign]
+                             + ["deepseekXv4Xfoo-vllm-dspark-1", "deepseek-v4.foo-vl-sidecar-1"],
+                             labelled=True)
+
+    def test_punctuation_survives_actual_shell_commands(self):
+        # Synthetic directory-derived projects exercise quoting, not Compose's
+        # project-name validation. No shell commands are embedded in the names.
+        for project, lookalike in (("ab+c[d]", "abbbbc[d]"), ("deepseek.$USER", "deepseek.recorder"),
+                                   ('deepseek"quoted', "deepseekquoted"),
+                                   ("deepseek'quoted", "deepseekquoted"),
+                                   (r"deepseek\path", "deepseekpath")):
+            with self.subTest(project=project):
+                own, foreign = containers(project)
+                foreign.extend((f"{lookalike}-vllm-dspark-1", f"{lookalike}-vl-sidecar-1"))
+                self.check_selection((project,), own, foreign, labelled=True)
+
+    def test_unlabelled_own_names_trigger_compose_cleanup(self):
+        own, foreign = containers("deepseek-v4-flash")
+        self.check_selection(("deepseek-v4-flash",), own, foreign)
+
+    def test_foreign_names_alone_do_not_trigger_cleanup(self):
+        _, foreign = containers("deepseek-v4-flash")
+        self.check_selection(("deepseek-v4-flash",), [], foreign)
 
 
 if __name__ == "__main__":
