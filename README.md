@@ -436,7 +436,20 @@ curl :8888/v1/chat/completions -H 'Content-Type: application/json' -d '{
 }'
 ```
 
-**pi** — the budget needs the boot flag **and** the pi model entry, so
+**pi image support** — pi keys image handling off the model's `input` array.
+A model entry that only lists `"text"` makes pi treat the endpoint as
+text-only and **drop images before the request is sent**, logging exactly
+`Current model does not support images. The image will be omitted from this
+request.` even though this server accepts `image_url`. Because this recipe is
+a vision model, [`pi-models.dspark.example.json`](pi-models.dspark.example.json)
+ships `"input": ["text", "image"]` so pi forwards screenshots as base64
+`image_url` parts. If you already copied an older copy that only had
+`["text"]`, add the `"image"` entry yourself and restart pi fully (a new
+session, not just `/reload`) before testing images. Keep images on a **user**
+turn — putting an `image_url` on `system` / `assistant` / `tool` returns HTTP
+400 (see the image usage notes above).
+
+**pi thinking budget** — the budget needs the boot flag **and** the pi model entry, so
 [`pi-models.dspark.example.json`](pi-models.dspark.example.json) ships
 `supportsThinkingTokenBudget: false` to match the server default
 (`DSPARK_ENABLE_ISSUE31_GPU_HOTFIX=0`). Copy it to `~/.pi/agent/models.json`;
