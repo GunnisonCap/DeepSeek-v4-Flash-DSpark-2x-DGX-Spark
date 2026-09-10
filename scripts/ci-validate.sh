@@ -31,6 +31,7 @@ for f in \
   scripts/boot-shape-warmup.sh \
   scripts/test-boot-shape-warmup.sh \
   scripts/validate_tp3.sh \
+  scripts/bench-patches.sh \
   lmcache/run-lmcache-server.sh \
   scripts/test-lmcache-compose-gate.sh \
   scripts/selftest-runtime-ablation.sh \
@@ -129,6 +130,8 @@ python3 scripts/test-ruler-lite-pad.py -q
 ok "test-ruler-lite-pad"
 python3 scripts/test-numeric-knob-validation.py -q
 ok "test-numeric-knob-validation"
+python3 scripts/test-bench-patches-prompt.py -q
+ok "test-bench-patches-prompt"
 python3 scripts/test-env-normalisation.py -q
 ok "test-env-normalisation"
 python3 scripts/test-stop-name-filter.py -q
