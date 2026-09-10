@@ -72,6 +72,7 @@ py_files+=(
   scripts/test-redact-api-key-log.py
   scripts/test-hotfix-atomic-transaction.py
   scripts/test-python-hotfix-failclosed.py
+  scripts/test-gb10-install-failclosed.py
   scripts/test-dsv4-vision-exp-hotfix.py
   scripts/test-issue141-sparse-mla-decode-chunk.py
   scripts/test-issue136-xgrammar-termination.py
@@ -133,6 +134,8 @@ python3 scripts/test-bench-patches-prompt.py -q
 ok "test-bench-patches-prompt"
 python3 scripts/test-env-normalisation.py -q
 ok "test-env-normalisation"
+python3 scripts/test-stop-name-filter.py -q
+ok "test-stop-name-filter"
 python3 scripts/test-served-model-alias.py -q
 ok "test-served-model-alias"
 python3 scripts/test-dspark-api-keys.py -q
@@ -143,12 +146,16 @@ python3 scripts/test-hotfix-atomic-transaction.py -q
 ok "test-hotfix-atomic-transaction"
 python3 scripts/test-python-hotfix-failclosed.py -q
 ok "test-python-hotfix-failclosed"
+python3 scripts/test-gb10-install-failclosed.py -q
+ok "test-gb10-install-failclosed"
 python3 scripts/test-dsv4-vision-exp-hotfix.py -q
 ok "test-dsv4-vision-exp-hotfix"
 python3 scripts/test-issue141-sparse-mla-decode-chunk.py -q
 ok "test-issue141-sparse-mla-decode-chunk"
 python3 scripts/test-issue136-xgrammar-termination.py -q
 ok "test-issue136-xgrammar-termination"
+python3 scripts/test-build-rsync-guard.py -q
+ok "test-build-rsync-guard"
 python3 scripts/test-issue191-toolcall-failclosed.py -q
 ok "test-issue191-toolcall-failclosed"
 python3 scripts/test-dspark-block-k.py -q
