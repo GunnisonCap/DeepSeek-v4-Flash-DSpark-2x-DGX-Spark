@@ -1,7 +1,7 @@
 ## 2026-09-08
 
 ### Fixed
-- **Worker build refuses to `rsync --delete` into a foreign directory**: `build-dspark-vllm-runtime.sh` mirrors the local checkout to the worker with `rsync -az --delete` into `${WORKER_CHECKOUT:-…}` — a wrong or stale value (typo, a directory used for something else) deleted whatever lived there, with no sanity check. The build now refuses (exit 1, with the path in the message) when the destination exists, is non-empty, and lacks `docker-compose.dspark.yml`; missing, empty, and existing recipe checkouts sync as before. CPU suite `scripts/test-build-rsync-guard.py` extracts the shipped guard and runs all four destination states.
+- **Worker build guards `rsync --delete` destinations**: `build-dspark-vllm-runtime.sh` permits missing or empty destinations and non-empty directories containing `docker-compose.dspark.yml`. Directory creation, access, or inspection failures abort before synchronization; non-empty foreign directories are refused. Remote checkout quoting and protected rsync arguments preserve paths with spaces or apostrophes. The compose filename is only a recognition heuristic, not proof of ownership: unrelated files in a recognized directory remain subject to deletion, and concurrent destination changes are not prevented. CPU suite `scripts/test-build-rsync-guard.py` runs the shipped build script with temporary directories and local command recorders; it stops at permission to synchronize without real SSH, Docker, or rsync.
 
 ## 2026-09-06
 
