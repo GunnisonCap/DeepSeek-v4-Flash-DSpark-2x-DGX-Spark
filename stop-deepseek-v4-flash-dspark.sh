@@ -72,6 +72,21 @@ stop_warn() {
 filter_compose_empty_project() {
   grep -v 'No resource found to remove for project' || true
 }
+
+# docker's --filter name= takes an UNANCHORED regular expression: a plain
+# "name=${project}-vllm-dspark" also matches any container whose name merely
+# contains that substring (e.g. a neighbouring checkout's
+# "deepseek-v4-flash-vllm-dspark-old"), and regex metacharacters in a project
+# name (LEGACY_PROJECT_NAME is derived from the checkout directory name and may
+# contain dots) would be read as regex. Escape metacharacters and anchor to the
+# compose container-name shape <project>[-_]<service>([-_]<index>)? so a stop
+# can only ever match this project's own containers.
+project_name_filters() {
+  local re
+  re=$(printf '%s' "$1" | sed 's/[][\\.^$*+?{}()|]/\\&/g')
+  RANK_NAME_RE="^${re}[-_]vllm-dspark([-_][0-9]+)?\$"
+  SIDECAR_NAME_RE="^${re}[-_]vl-sidecar([-_][0-9]+)?\$"
+}
 if ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_HOST" "true" >/dev/null 2>&1; then
   WORKER_REACHABLE=1
 else
@@ -101,9 +116,10 @@ force_rm_project_containers() {
   local project="$1"
   local where="$2" # local | remote | remote2
   local cmd
+  project_name_filters "$project"
   cmd=$(cat <<EOF
 ids=\$(docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null || true)
-names=\$(docker ps -aq --filter "name=${project}-vl-sidecar" --filter "name=${project}-vllm-dspark" 2>/dev/null || true)
+names=\$(docker ps -aq --filter "name=${SIDECAR_NAME_RE}" --filter "name=${RANK_NAME_RE}" 2>/dev/null || true)
 all=\$(printf '%s\n%s\n' "\$ids" "\$names" | awk 'NF' | sort -u)
 if [ -n "\$all" ]; then
   echo "Force-removing containers for project $project..."
@@ -125,8 +141,9 @@ EOF
 
 stop_vl_sidecar_head() {
   local project="$1"
+  project_name_filters "$project"
   # Sweep leftover Qwen sidecar containers from older checkouts.
-  docker ps -aq --filter "name=${project}-vl-sidecar" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  docker ps -aq --filter "name=${SIDECAR_NAME_RE}" | xargs -r docker rm -f >/dev/null 2>&1 || true
 }
 
 stop_vl_sidecar_worker() {
@@ -134,8 +151,9 @@ stop_vl_sidecar_worker() {
   if [ "${WORKER_REACHABLE:-1}" != "1" ]; then
     return 0
   fi
+  project_name_filters "$project"
   ssh "$WORKER_HOST" "
-    ids=\$(docker ps -aq --filter 'name=${project}-vl-sidecar' 2>/dev/null || true)
+    ids=\$(docker ps -aq --filter 'name=${SIDECAR_NAME_RE}' 2>/dev/null || true)
     if [ -n \"\$ids\" ]; then docker rm -f \$ids >/dev/null 2>&1 || true; fi
     rm -f '$WORKER_DIR/docker-compose.vl-sidecar.yml' 2>/dev/null || true
   " || true
@@ -143,10 +161,11 @@ stop_vl_sidecar_worker() {
 
 stop_main_head() {
   local project="$1"
-  if local_project_has_resources "$project" || docker ps -aq --filter "name=${project}-vllm-dspark" | grep -q .; then
+  project_name_filters "$project"
+  if local_project_has_resources "$project" || docker ps -aq --filter "name=${RANK_NAME_RE}" | grep -q .; then
     echo "Stopping DSpark on head (project ${project})..."
     # rm -f first: compose down can still wait on stop_grace_period.
-    docker ps -aq --filter "name=${project}-vllm-dspark" | xargs -r docker rm -f >/dev/null 2>&1 || true
+    docker ps -aq --filter "name=${RANK_NAME_RE}" | xargs -r docker rm -f >/dev/null 2>&1 || true
     COMPOSE_DISABLE_ENV_FILE=1 NODE_RANK=0 \
       docker compose -p "$project" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down --remove-orphans -t 1 2>&1 \
       | filter_compose_empty_project || true
@@ -173,16 +192,17 @@ stop_main_worker() {
     stop_warn "worker ${host} unreachable: DSpark rank not stopped"
     return 0
   fi
+  project_name_filters "$project"
   ssh "$host" "
     cd '$wdir' || exit 1
     if {
       docker ps -aq --filter 'label=com.docker.compose.project=$project'
       docker network ls -q --filter 'label=com.docker.compose.project=$project'
       docker volume ls -q --filter 'label=com.docker.compose.project=$project'
-      docker ps -aq --filter 'name=${project}-vllm-dspark'
+      docker ps -aq --filter 'name=${RANK_NAME_RE}'
     } | grep -q .; then
       echo 'Stopping DSpark on worker $host (project $project)...'
-      docker ps -aq --filter 'name=${project}-vllm-dspark' | xargs -r docker rm -f >/dev/null 2>&1 || true
+      docker ps -aq --filter 'name=${RANK_NAME_RE}' | xargs -r docker rm -f >/dev/null 2>&1 || true
       env -u MASTER_ADDR -u MASTER_PORT -u NODE_RANK -u HEADLESS \
         COMPOSE_DISABLE_ENV_FILE=1 $hf_env \
         VLLM_HOST_IP='$vllm_ip' NODE_RANK=$rank HEADLESS=1 \

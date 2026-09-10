@@ -1,3 +1,8 @@
+## 2026-09-08
+
+### Fixed
+- **Stop-script container name filters are now anchored**: docker's `--filter name=` takes an *unanchored* regular expression, so the plain `${project}-vllm-dspark` / `${project}-vl-sidecar` patterns also matched (and `docker rm -f`'d) any container whose name merely contained the string (e.g. a neighbouring checkout's `deepseek-v4-flash-vllm-dspark-old`), and regex metacharacters in a project name (`LEGACY_PROJECT_NAME` is derived from the checkout directory name) were read as regex. All seven filter sites in `stop-deepseek-v4-flash-dspark.sh` now escape metacharacters and anchor to the compose container-name shape `<project>[-_]<service>([-_]<index>)?`, so a stop can only ever match this project's own containers. CPU suite `scripts/test-stop-name-filter.py` (helper extraction, per-service match/reject matrices, metachar project names, source-shape guards) runs in `scripts/ci-validate.sh`.
+
 ## 2026-09-06
 
 ### Added
