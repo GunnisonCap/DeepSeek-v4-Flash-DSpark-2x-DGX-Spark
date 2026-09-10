@@ -2,6 +2,7 @@
 
 ### Fixed
 - **Stop-script container name filters are now anchored**: match only `<project>[-_]<service>([-_]<index>)?` for the DSpark rank and legacy sidecar, treating project punctuation literally through local and worker command construction. Compose-label ownership is unchanged. `scripts/test-stop-name-filter.py`, registered in `scripts/ci-validate.sh`, uses isolated command recorders to check own/foreign selections and label-owned cleanup without Docker or SSH.
+- **Worker build guards `rsync --delete` destinations**: `build-dspark-vllm-runtime.sh` permits missing or empty destinations and non-empty directories containing `docker-compose.dspark.yml`. Directory creation, access, or inspection failures abort before synchronization; non-empty foreign directories are refused. Remote checkout quoting and protected rsync arguments preserve paths with spaces or apostrophes. The compose filename is only a recognition heuristic, not proof of ownership: unrelated files in a recognized directory remain subject to deletion, and concurrent destination changes are not prevented. CPU suite `scripts/test-build-rsync-guard.py` runs the shipped build script with temporary directories and local command recorders; it stops at permission to synchronize without real SSH, Docker, or rsync.
 
 ## 2026-09-06
 
