@@ -74,9 +74,12 @@ log ""
 run_ttft() {
   local prompt_tokens=$1
   local label=$2
-  # Generate a prompt of ~prompt_tokens words (rough: 1 token ≈ 1.3 chars)
+  # Generate a prompt of ~prompt_tokens words (rough: 1 token ≈ 1.3 chars).
+  # Integer arithmetic only: in Python 3 `/` yields a float and
+  # 'hello ' * <float> raises TypeError, which the fallback below silently
+  # replaced with the same 2-token "hello world" for every labelled size.
   local prompt
-  prompt=$(python3 -c "print('hello ' * ($prompt_tokens * 4 / 3 // 6))" 2>/dev/null || echo "hello world")
+  prompt=$(python3 -c "print('hello ' * ($prompt_tokens * 4 // 3 // 6))" 2>/dev/null || echo "hello world")
   
   local start_ms end_ms ttft_ms
   start_ms=$(date +%s%3N)
